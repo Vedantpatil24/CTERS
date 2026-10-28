@@ -1,0 +1,938 @@
+openapi: 3.0.3
+info:
+  title: CTERS - Corporate Travel & Expense Reimbursement System API
+  description: Complete OpenAPI contract for the CTERS system across all actor roles.
+  version: 1.0.0
+servers:
+  - url: http://localhost:5000/api
+    description: Local Development Server
+
+paths:
+  /auth/request-activation:
+    post:
+      summary: Request first-time account activation OTP
+      description: Validates employeeId and officialEmail against active EmployeeMaster.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, officialEmail]
+              properties:
+                employeeId:
+                  type: string
+                officialEmail:
+                  type: string
+                  format: email
+      responses:
+        200:
+          description: OTP dispatched (or generic response)
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  message:
+                    type: string
+        400:
+          description: Verification failure (generic security response)
+
+  /auth/complete-activation:
+    post:
+      summary: Complete account activation using OTP and set password
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, otp, password]
+              properties:
+                employeeId:
+                  type: string
+                otp:
+                  type: string
+                password:
+                  type: string
+      responses:
+        200:
+          description: Account activated successfully
+        400:
+          description: Invalid OTP or requirements not met
+
+  /auth/login:
+    post:
+      summary: User authentication
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier, password]
+              properties:
+                identifier:
+                  type: string
+                  description: Email or Employee ID
+                password:
+                  type: string
+      responses:
+        200:
+          description: Login successful
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  token:
+                    type: string
+                  user:
+                    type: object
+        401:
+          description: Authentication failed or account locked
+
+  /auth/me:
+    get:
+      summary: Get currently authenticated user details
+      responses:
+        200:
+          description: Authenticated user object
+        401:
+          description: Unauthorized
+
+  /auth/request-password-reset:
+    post:
+      summary: Request password reset link/token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [identifier]
+              properties:
+                identifier:
+                  type: string
+      responses:
+        200:
+          description: Generic confirmation response
+
+  /auth/complete-password-reset:
+    post:
+      summary: Complete password reset using reset token
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [token, newPassword]
+              properties:
+                token:
+                  type: string
+                newPassword:
+                  type: string
+      responses:
+        200:
+          description: Password reset successful
+
+  /profile:
+    get:
+      summary: Get profile information including designated manager
+      responses:
+        200:
+          description: Profile object
+
+  /profile/bank:
+    put:
+      summary: Update reimbursement bank account reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [password, bankAccountRef]
+              properties:
+                password:
+                  type: string
+                bankAccountRef:
+                  type: string
+      responses:
+        200:
+          description: Bank account details updated
+        401:
+          description: Password verification failed
+
+  /travel-requests:
+    get:
+      summary: List travel requests
+      parameters:
+        - name: status
+          in: query
+          schema:
+            type: string
+      responses:
+        200:
+          description: Array of travel requests
+    post:
+      summary: Submit a travel request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [destination, startDate, endDate, purpose, estimatedBudgetPaise]
+              properties:
+                destination:
+                  type: string
+                startDate:
+                  type: string
+                  format: date
+                endDate:
+                  type: string
+                  format: date
+                purpose:
+                  type: string
+                justificationCategory:
+                  type: string
+                estimatedBudgetPaise:
+                  type: integer
+                shortNoticeReason:
+                  type: string
+                overlapAcknowledged:
+                  type: boolean
+      responses:
+        201:
+          description: Travel request submitted
+
+  /travel-requests/{id}:
+    get:
+      summary: Get travel request by ID
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Travel request details
+    put:
+      summary: Edit travel request while submitted or clarification requested
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Travel request updated
+
+  /travel-requests/{id}/cancel:
+    post:
+      summary: Cancel a travel request before approval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Request cancelled
+
+  /approvals/pending:
+    get:
+      summary: Get pending travel and claim approval items for the manager
+      responses:
+        200:
+          description: List of pending approvals
+
+  /approvals/decide:
+    post:
+      summary: Submit approval decision (approve, reject, clarify)
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [entityType, entityId, decision]
+              properties:
+                entityType:
+                  type: string
+                  enum: [TRAVEL_REQUEST, EXPENSE_CLAIM]
+                entityId:
+                  type: string
+                decision:
+                  type: string
+                  enum: [APPROVE, REJECT, CLARIFY]
+                comment:
+                  type: string
+      responses:
+        200:
+          description: Decision recorded
+
+  /bookings/queue:
+    get:
+      summary: Travel desk booking queue
+      responses:
+        200:
+          description: List of approved travel requests awaiting booking
+
+  /travel-requests/{id}/itinerary:
+    post:
+      summary: Record itinerary and components (Travel Desk only)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [components]
+              properties:
+                components:
+                  type: array
+                  items:
+                    type: object
+                    required: [type, vendor, bookingReference, actualCostPaise]
+                    properties:
+                      type:
+                        type: string
+                      vendor:
+                        type: string
+                      bookingReference:
+                        type: string
+                      actualCostPaise:
+                        type: integer
+      responses:
+        201:
+          description: Itinerary recorded and request updated to booked
+
+  /claims:
+    get:
+      summary: List user's expense claims
+      responses:
+        200:
+          description: List of claims
+    post:
+      summary: Create a new draft expense claim linked to a booked travel request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [travelRequestId]
+              properties:
+                travelRequestId:
+                  type: string
+                description:
+                  type: string
+      responses:
+        201:
+          description: Claim draft created
+
+  /claims/{id}:
+    get:
+      summary: Get claim details with lines, receipts, and policy violations
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Claim details
+
+  /claims/{id}/lines:
+    post:
+      summary: Add an expense line item to a draft claim
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, date, amountPaise]
+              properties:
+                category:
+                  type: string
+                date:
+                  type: string
+                  format: date
+                amountPaise:
+                  type: integer
+                description:
+                  type: string
+      responses:
+        201:
+          description: Expense line added
+
+  /claims/{id}/lines/{lineId}:
+    delete:
+      summary: Remove an expense line item
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Line item removed
+
+  /claims/{id}/lines/{lineId}/receipts:
+    post:
+      summary: Upload a receipt file (JPEG/PNG/PDF, <=5MB) for an expense line
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        201:
+          description: Receipt uploaded
+
+  /claims/{id}/lines/{lineId}/receipts/{receiptId}:
+    delete:
+      summary: Delete a receipt from an expense line prior to submission
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: lineId
+          in: path
+          required: true
+          schema:
+            type: string
+        - name: receiptId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Receipt removed
+
+  /receipts/{receiptId}/download:
+    get:
+      summary: View / download uploaded receipt file
+      parameters:
+        - name: receiptId
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Receipt binary content
+
+  /claims/{id}/validate:
+    post:
+      summary: Dry-run policy engine validation without state transition
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Policy evaluation results including blocking/non-blocking violations
+
+  /claims/{id}/submit:
+    post:
+      summary: Final submit expense claim
+      description: Runs policy engine, persists violations, checks blocking errors, routes to manager.
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Claim submitted successfully
+        422:
+          description: Submission blocked due to policy violations (e.g. missing receipt)
+
+  /claims/{id}/withdraw:
+    post:
+      summary: Withdraw submitted claim before approval
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Claim withdrawn
+
+  /finance/claims-queue:
+    get:
+      summary: Finance verification queue of manager-approved claims
+      responses:
+        200:
+          description: List of claims ready for finance verification
+
+  /finance/claims/{id}/verify:
+    post:
+      summary: Mark claim as processed by finance (Ready for Disbursement)
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Claim marked ready for disbursement
+
+  /finance/claims/{id}/return:
+    post:
+      summary: Return claim for correction with stated reason
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [reason]
+              properties:
+                reason:
+                  type: string
+      responses:
+        200:
+          description: Claim flagged for correction
+
+  /finance/batches:
+    get:
+      summary: List reimbursement batches
+      responses:
+        200:
+          description: Batches list
+    post:
+      summary: Create a reimbursement batch from ready claims
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [claimIds]
+              properties:
+                claimIds:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        201:
+          description: Batch created
+
+  /finance/batches/{id}/export-csv:
+    get:
+      summary: Generate and download reimbursement bank export CSV
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: CSV file download
+
+  /finance/batches/{id}/confirm:
+    post:
+      summary: Confirm disbursement for batch claims in one atomic transaction
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [paymentReference]
+              properties:
+                paymentReference:
+                  type: string
+      responses:
+        200:
+          description: All claims in batch marked reimbursed
+
+  /admin/employees:
+    get:
+      summary: List employee master records
+      responses:
+        200:
+          description: Employee master list
+    post:
+      summary: Add an employee master record
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, officialEmail, name, department, designation]
+              properties:
+                employeeId:
+                  type: string
+                officialEmail:
+                  type: string
+                name:
+                  type: string
+                department:
+                  type: string
+                designation:
+                  type: string
+                reportsToEmployeeId:
+                  type: string
+                bankAccountRef:
+                  type: string
+                employmentStatus:
+                  type: string
+                  enum: [active, terminated, on_leave]
+      responses:
+        201:
+          description: Employee added to master
+
+  /admin/employees/import-csv:
+    post:
+      summary: Bulk import employee master records via CSV
+      requestBody:
+        required: true
+        content:
+          multipart/form-data:
+            schema:
+              type: object
+              properties:
+                file:
+                  type: string
+                  format: binary
+      responses:
+        200:
+          description: Bulk import results
+
+  /admin/users:
+    get:
+      summary: List user accounts
+      responses:
+        200:
+          description: Users list
+    post:
+      summary: Create a user account from an existing EmployeeMaster row
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [employeeId, roles]
+              properties:
+                employeeId:
+                  type: string
+                roles:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        201:
+          description: User account created
+
+  /admin/users/{id}/roles:
+    put:
+      summary: Update user assigned roles
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [roles]
+              properties:
+                roles:
+                  type: array
+                  items:
+                    type: string
+      responses:
+        200:
+          description: Roles updated
+
+  /admin/users/{id}/deactivate:
+    post:
+      summary: Deactivate user account
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: User deactivated
+
+  /admin/users/{id}/reassign-manager:
+    post:
+      summary: Reassign employee designated manager
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [newManagerEmployeeId]
+              properties:
+                newManagerEmployeeId:
+                  type: string
+      responses:
+        200:
+          description: Designated manager updated
+
+  /admin/approvals/reassign:
+    post:
+      summary: Reassign pending approval task
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [approvalId, newApproverId]
+              properties:
+                approvalId:
+                  type: string
+                newApproverId:
+                  type: string
+      responses:
+        200:
+          description: Approval task reassigned
+
+  /admin/run-escalation:
+    post:
+      summary: Trigger manual escalation job for items pending > 3 business days
+      responses:
+        200:
+          description: Escalation execution summary
+
+  /admin/policies:
+    get:
+      summary: List policy rules
+      responses:
+        200:
+          description: Active and historical policy rules
+    post:
+      summary: Create new policy rule version
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [category, limitAmountPaise, receiptThresholdPaise, noticePeriodDays]
+              properties:
+                category:
+                  type: string
+                limitAmountPaise:
+                  type: integer
+                receiptThresholdPaise:
+                  type: integer
+                noticePeriodDays:
+                  type: integer
+      responses:
+        201:
+          description: Policy rule created
+
+  /admin/policies/{id}/deactivate:
+    put:
+      summary: Deactivate a policy rule
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Policy rule deactivated
+
+  /admin/settings:
+    get:
+      summary: Get system configuration settings
+      responses:
+        200:
+          description: Settings dictionary
+    put:
+      summary: Update system settings
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+      responses:
+        200:
+          description: Settings updated
+
+  /audit-logs:
+    get:
+      summary: Search and filter immutable audit logs (Auditor and Admin only)
+      parameters:
+        - name: userId
+          in: query
+          schema:
+            type: string
+        - name: actionType
+          in: query
+          schema:
+            type: string
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+      responses:
+        200:
+          description: Audit log entries
+
+  /outbox:
+    get:
+      summary: List generated notification emails (Outbox demonstration)
+      responses:
+        200:
+          description: List of outbox emails
+
+  /notifications:
+    get:
+      summary: List user notifications
+      responses:
+        200:
+          description: Notifications list
+  /notifications/{id}/read:
+    put:
+      summary: Mark notification as read
+      parameters:
+        - name: id
+          in: path
+          required: true
+          schema:
+            type: string
+      responses:
+        200:
+          description: Notification marked read
+
+  /dashboards/summary:
+    get:
+      summary: Get role-tailored dashboard metrics and counters
+      responses:
+        200:
+          description: Summary metric cards
+
+  /reports/travel-expense:
+    get:
+      summary: Filtered travel and expense report with optional CSV export
+      parameters:
+        - name: startDate
+          in: query
+          schema:
+            type: string
+        - name: endDate
+          in: query
+          schema:
+            type: string
+        - name: department
+          in: query
+          schema:
+            type: string
+        - name: status
+          in: query
+          schema:
+            type: string
+        - name: exportCsv
+          in: query
+          schema:
+            type: boolean
+      responses:
+        200:
+          description: Report dataset or CSV file
+
+  /reports/policy-violations:
+    get:
+      summary: Policy violation frequency and analysis summary
+      responses:
+        200:
+          description: Violations summary

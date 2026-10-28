@@ -1,0 +1,325 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model EmployeeMaster {
+  id                  String   @id @default(uuid())
+  employeeId          String   @unique
+  officialEmail       String   @unique
+  name                String
+  department          String
+  designation         String
+  reportsToEmployeeId String?
+  bankAccountRef      String?
+  employmentStatus    String   @default("active") // active, terminated, on_leave
+  joinedOn            DateTime @default(now())
+
+  user User?
+
+  @@index([employeeId])
+  @@index([officialEmail])
+  @@index([employmentStatus])
+}
+
+model User {
+  id                  String         @id @default(uuid())
+  employeeMasterId    String         @unique
+  employeeMaster      EmployeeMaster @relation(fields: [employeeMasterId], references: [id])
+  passwordHash        String
+  activated           Boolean        @default(false)
+  failedLoginAttempts Int            @default(0)
+  lockedUntil         DateTime?
+  createdAt           DateTime       @default(now())
+  updatedAt           DateTime       @updatedAt
+
+  roles               UserRole[]
+  travelRequests      TravelRequest[]
+  expenseClaims       ExpenseClaim[]
+  approvals           Approval[]
+  notifications       Notification[]
+  travelAttachments   TravelAttachment[]
+
+  @@index([employeeMasterId])
+}
+
+model UserRole {
+  id     String @id @default(uuid())
+  userId String
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role   String // EMPLOYEE, APPROVING_MANAGER, TRAVEL_DESK, FINANCE, ADMIN, AUDITOR
+
+  @@unique([userId, role])
+  @@index([userId])
+}
+
+model OtpToken {
+  id         String   @id @default(uuid())
+  employeeId String
+  token      String
+  type       String   // ACTIVATION, PASSWORD_RESET
+  expiresAt  DateTime
+  used       Boolean  @default(false)
+  createdAt  DateTime @default(now())
+
+  @@index([employeeId, token])
+}
+
+model EmailOutbox {
+  id             String   @id @default(uuid())
+  recipientEmail String
+  subject        String
+  body           String
+  sentAt         DateTime @default(now())
+
+  @@index([recipientEmail])
+}
+
+model TravelRequest {
+  id                   String   @id @default(uuid())
+  requestNo            String   @unique
+  userId               String
+  user                 User     @relation(fields: [userId], references: [id])
+  destination          String
+  startDate            DateTime
+  endDate              DateTime
+  purpose              String
+  justificationCategory String?
+  estimatedBudgetPaise Int
+  status               String   @default("submitted") // submitted, clarification_requested, approved, rejected, booked, completed, cancelled
+  shortNoticeReason    String?
+  overlapAcknowledged  Boolean  @default(false)
+  flaggedForAdmin      Boolean  @default(false)
+  currentApproverId    String?
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  attachments TravelAttachment[]
+  itinerary   Itinerary?
+  claims      ExpenseClaim[]
+
+  @@index([userId])
+  @@index([status])
+  @@index([currentApproverId])
+}
+
+model TravelAttachment {
+  id              String        @id @default(uuid())
+  travelRequestId String
+  travelRequest   TravelRequest @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+  fileName        String
+  fileUrl         String
+  fileType        String        @default("application/octet-stream")
+  fileSizeBytes   Int           @default(0)
+  uploadedById    String?
+  uploadedBy      User?         @relation(fields: [uploadedById], references: [id], onDelete: SetNull)
+  uploadedAt      DateTime      @default(now())
+
+  @@index([travelRequestId])
+}
+
+model Itinerary {
+  id              String        @id @default(uuid())
+  travelRequestId String        @unique
+  travelRequest   TravelRequest @relation(fields: [travelRequestId], references: [id], onDelete: Cascade)
+  version         Int           @default(1)
+  totalCostPaise  Int           @default(0)
+  recordedAt      DateTime      @default(now())
+
+  components ItineraryComponent[]
+}
+
+model ItineraryComponent {
+  id               String    @id @default(uuid())
+  itineraryId      String
+  itinerary        Itinerary @relation(fields: [itineraryId], references: [id], onDelete: Cascade)
+  type             String    // flight, train, hotel, local
+  vendor           String
+  bookingReference String
+  actualCostPaise  Int
+
+  @@index([itineraryId])
+}
+
+model ExpenseClaim {
+  id                String    @id @default(uuid())
+  claimNo           String    @unique
+  travelRequestId   String
+  travelRequest     TravelRequest @relation(fields: [travelRequestId], references: [id])
+  userId            String
+  user              User      @relation(fields: [userId], references: [id])
+  description       String?
+  totalAmountPaise  Int       @default(0)
+  status            String    @default("draft") // draft, submitted, under_policy_validation, flagged_for_correction, pending_approval, approved, rejected, clarification_requested, processed_by_finance, reimbursed
+  policyVersionUsed Int?
+  currentApproverId String?
+  submittedAt       DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+
+  lines         ExpenseLine[]
+  violations    PolicyViolation[]
+  reimbursement Reimbursement?
+  batchClaims   BatchClaim[]
+
+  @@index([userId])
+  @@index([travelRequestId])
+  @@index([status])
+  @@index([currentApproverId])
+}
+
+model ExpenseLine {
+  id                  String       @id @default(uuid())
+  claimId             String
+  claim               ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  category            String
+  date                DateTime
+  amountPaise         Int
+  currency            String       @default("INR")
+  convertedAmountPaise Int         @default(0)
+  description         String?
+
+  receipts Receipt[]
+
+  @@index([claimId])
+}
+
+model Receipt {
+  id            String      @id @default(uuid())
+  lineId        String
+  line          ExpenseLine @relation(fields: [lineId], references: [id], onDelete: Cascade)
+  fileName      String
+  fileUrl       String
+  fileType      String
+  fileSizeBytes Int
+  uploadedAt    DateTime    @default(now())
+
+  @@index([lineId])
+}
+
+model PolicyRule {
+  id                   String   @id @default(uuid())
+  version              Int
+  effectiveDate        DateTime @default(now())
+  active               Boolean  @default(true)
+  category             String
+  limitAmountPaise     Int
+  receiptThresholdPaise Int
+  noticePeriodDays     Int      @default(5)
+  createdAt            DateTime @default(now())
+
+  @@index([category, active])
+  @@index([version])
+}
+
+model PolicyViolation {
+  id          String       @id @default(uuid())
+  claimId     String
+  claim       ExpenseClaim @relation(fields: [claimId], references: [id], onDelete: Cascade)
+  lineId      String?
+  ruleVersion Int
+  category    String
+  description String
+  blocking    Boolean
+  createdAt   DateTime     @default(now())
+
+  @@index([claimId])
+}
+
+model Approval {
+  id         String    @id @default(uuid())
+  entityType String    // TRAVEL_REQUEST, EXPENSE_CLAIM
+  entityId   String
+  level      Int       @default(1)
+  approverId String
+  approver   User      @relation(fields: [approverId], references: [id])
+  decision   String    @default("PENDING") // PENDING, APPROVE, REJECT, CLARIFY
+  comment    String?
+  decidedAt  DateTime?
+  createdAt  DateTime  @default(now())
+
+  @@index([approverId, decision])
+  @@index([entityType, entityId])
+}
+
+model ReimbursementBatch {
+  id              String       @id @default(uuid())
+  batchRef        String       @unique
+  exportReference String?
+  status          String       @default("created") // created, exported, confirmed
+  totalAmountPaise Int         @default(0)
+  exportedAt      DateTime?
+  confirmedAt     DateTime?
+  createdAt       DateTime     @default(now())
+
+  claims BatchClaim[]
+
+  @@index([status])
+}
+
+model BatchClaim {
+  id       String             @id @default(uuid())
+  batchId  String
+  batch    ReimbursementBatch @relation(fields: [batchId], references: [id], onDelete: Cascade)
+  claimId  String
+  claim    ExpenseClaim       @relation(fields: [claimId], references: [id])
+
+  @@unique([batchId, claimId])
+  @@index([batchId])
+  @@index([claimId])
+}
+
+model Reimbursement {
+  id                String       @id @default(uuid())
+  claimId           String       @unique
+  claim             ExpenseClaim @relation(fields: [claimId], references: [id])
+  amountPaise       Int
+  paymentReference  String
+  paymentDate       DateTime     @default(now())
+  processedByUserId String
+  createdAt         DateTime     @default(now())
+
+  @@index([claimId])
+}
+
+model Notification {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  title     String
+  message   String
+  read      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  @@index([userId, read])
+}
+
+model AuditLogEntry {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actorEmail String?
+  actionType String
+  recordType String
+  recordId   String?
+  priorValue String?
+  newValue   String?
+  ipAddress  String?
+  timestamp  DateTime @default(now())
+
+  @@index([actorId])
+  @@index([actionType])
+  @@index([timestamp])
+}
+
+model Setting {
+  id          String  @id @default(uuid())
+  key         String  @unique
+  value       String
+  description String?
+
+  @@index([key])
+}
